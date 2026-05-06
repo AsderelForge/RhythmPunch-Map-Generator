@@ -13,7 +13,11 @@ Download the latest version from the Releases section.
 1. Run the executable  
 2. Select an audio file  
 3. Generate your map  
-4. Import it into Rhythm Punch  
+4. Import it into Rhythm Punch
+   Copy the maps to 
+Android\data\com.asderelforge.rythmpunch\files\Maps
+   Copy the audio files to 
+Android\data\com.asderelforge.rythmpunch\files\Audio Files  
 
 ## Important Notice
 
