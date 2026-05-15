@@ -49,6 +49,8 @@ button {
     border-radius: 8px;
     cursor: pointer;
     font-size: 14px;
+    position: relative;
+    z-index: 10;
 }
 
 button:hover {
@@ -270,18 +272,21 @@ for (const name in COMBOS) {
 // LOAD AUDIO
 // =====================================================
 
-loadBtn.onclick = () => {
-    fileInput.click();
-};
+loadBtn.addEventListener("click", () => {
 
-fileInput.onchange = (e) => {
+    fileInput.value = "";
+
+    fileInput.click();
+});
+
+fileInput.addEventListener("change", (e) => {
 
     const file = e.target.files[0];
 
     if (!file) return;
 
     loadSong(file);
-};
+});
 
 function loadSong(file) {
 
@@ -782,21 +787,26 @@ exportBtn.onclick = () => {
 // DRAG AND DROP
 // =====================================================
 
-window.addEventListener("dragover", (e) => {
+document.addEventListener("dragover", (e) => {
 
     e.preventDefault();
+    e.stopPropagation();
 
     dropOverlay.style.display = "flex";
 });
 
-window.addEventListener("dragleave", () => {
+document.addEventListener("dragleave", (e) => {
+
+    e.preventDefault();
+    e.stopPropagation();
 
     dropOverlay.style.display = "none";
 });
 
-window.addEventListener("drop", (e) => {
+document.addEventListener("drop", (e) => {
 
     e.preventDefault();
+    e.stopPropagation();
 
     dropOverlay.style.display = "none";
 
