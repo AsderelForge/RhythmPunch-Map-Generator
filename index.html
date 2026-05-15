@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rhythm Punch Mapper</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #1b1d26;
+    color: white;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+}
+
+#app {
+    display: flex;
+    height: 100vh;
+}
+
+#left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 2px solid #2f3342;
+}
+
+#toolbar {
+    height: 64px;
+    background: #242631;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 2px solid #2f3342;
+}
+
+button {
+    background: #3a3f52;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+button:hover {
+    background: #4a5169;
+}
+
+#timelineContainer {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    background: #1b1d26;
+}
+
+#timeline {
+    background: #1b1d26;
+    display: block;
+}
+
+#right {
+    width: 300px;
+    background: #242631;
+    display: flex;
+    flex-direction: column;
+}
+
+#comboTitle {
+    padding: 16px;
+    font-size: 20px;
+    font-weight: bold;
+    border-bottom: 2px solid #2f3342;
+}
+
+#comboList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.combo {
+    background: #34384a;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.combo:hover {
+    background: #454b63;
+}
+
+#dropOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    font-size: 32px;
+    font-weight: bold;
+    color: white;
+    pointer-events: none;
+}
+
+#status {
+    font-size: 14px;
+    color: #b8bfd8;
+}
+
+.selected {
+    outline: 3px solid #89f7c4;
+}
+
+</style>
+</head>
+<body>
+
+<div id="dropOverlay">
+    Drop MP3 Here
+</div>
+
+<div id="app">
+
+    <div id="left">
+
+        <div id="toolbar">
+
+            <button id="loadBtn">Load Song</button>
+
+            <button id="playBtn">Play</button>
+
+            <button id="pauseBtn">Pause</button>
+
+            <button id="exportBtn">Export RPMap</button>
+
+            <div id="status">
+                No song loaded
+            </div>
+
+            <input
+                type="file"
+                id="fileInput"
+                accept="audio/*"
+                style="display:none"
+            >
+
+        </div>
+
+        <div id="timelineContainer">
+            <canvas id="timeline"></canvas>
+        </div>
+
+    </div>
+
+    <div id="right">
+
+        <div id="comboTitle">
+            Combos
+        </div>
+
+        <div id="comboList"></div>
+
+    </div>
+
+</div>
+
+<script>
+
+// =====================================================
+// CONFIG
+// =====================================================
+
+const COMBOS = {
+
+    "Jab Cross": [45, -45],
+
+    "Hook Combo": [180, -180],
+
+    "Upper Combo": [0, 90],
+
+    "Flow Left": [0, 45, -45],
+
+    "Flow Right": [0, -45, 45],
+
+    "Boxing Flow": [45, -45, 180, -180]
+};
+
+const DIFFICULTY_RATIOS = {
+
+    expert: 1.0,
+    hard: 0.8,
+    normal: 0.6,
+    easy: 0.4
+};
+
+const NOTE_RADIUS = 10;
+const PIXELS_PER_SECOND = 140;
+const LINE_HEIGHT = 80;
+const TIMELINE_LINES = 4;
+
+// =====================================================
+// STATE
+// =====================================================
+
+let audio = null;
+let audioUrl = null;
+
+let notes = [];
+    obstacles = [];
+let obstacles = [];
+let selectedIndex = -1;
+
+let isPlaying = false;
+
+// =====================================================
+// CANVAS
+// =====================================================
+
+const canvas = document.getElementById("timeline");
+const ctx = canvas.getContext("2d");
+
+const container = document.getElementById("timelineContainer");
+
+// =====================================================
+// UI
+// =====================================================
+
+const fileInput = document.getElementById("fileInput");
+const loadBtn = document.getElementById("loadBtn");
+const playBtn = document.getElementById("playBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const exportBtn = document.getElementById("exportBtn");
+const status = document.getElementById("status");
+const comboList = document.getElementById("comboList");
+const dropOverlay = document.getElementById("dropOverlay");
+
+// =====================================================
+// COMBO UI
+// =====================================================
+
+for (const name in COMBOS) {
+
+    const div = document.createElement("div");
+
+    div.className = "combo";
+
+    div.innerHTML = `
+        <strong>${name}</strong><br>
+        ${COMBOS[name].join(" → ")}
+    `;
+
+    div.onclick = () => applyCombo(name);
+
+    comboList.appendChild(div);
+}
+
+// =====================================================
+// LOAD AUDIO
+// =====================================================
+
+loadBtn.onclick = () => {
+    fileInput.click();
+};
+
+fileInput.onchange = (e) => {
+
+    const file = e.target.files[0];
+
+    if (!file) return;
+
+    loadSong(file);
+};
+
+function loadSong(file) {
+
+    if (audio) {
+        audio.pause();
+    }
+
+    notes = [];
+    selectedIndex = -1;
+
+    audioUrl = URL.createObjectURL(file);
+
+    audio = new Audio(audioUrl);
+
+    status.innerText = file.name;
+
+    audio.onloadedmetadata = () => {
+
+        resizeCanvas();
+        draw();
+    };
+}
+
+// =====================================================
+// PLAYBACK
+// =====================================================
+
+playBtn.onclick = () => {
+
+    if (!audio) return;
+
+    audio.play();
+
+    isPlaying = true;
+};
+
+pauseBtn.onclick = () => {
+
+    if (!audio) return;
+
+    audio.pause();
+
+    isPlaying = false;
+};
+
+// =====================================================
+// TIMELINE
+// =====================================================
+
+function resizeCanvas() {
+
+    const duration = audio ? audio.duration : 60;
+
+    canvas.width = duration * PIXELS_PER_SECOND;
+
+    canvas.height = LINE_HEIGHT * TIMELINE_LINES;
+}
+
+window.addEventListener("resize", resizeCanvas);
+
+// =====================================================
+// DRAW
+// =====================================================
+
+function draw() {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawGrid();
+
+    drawNotes();
+
+    drawObstacles();
+
+    drawCursor();
+
+    requestAnimationFrame(draw);
+}
+
+// =====================================================
+// GRID
+// =====================================================
+
+function drawGrid() {
+
+    ctx.strokeStyle = "#2f3342";
+
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < TIMELINE_LINES; i++) {
+
+        const y = (i + 1) * LINE_HEIGHT;
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+    }
+
+    for (let s = 0; s < canvas.width; s += PIXELS_PER_SECOND) {
+
+        ctx.strokeStyle = "#2b2e3d";
+
+        ctx.beginPath();
+        ctx.moveTo(s, 0);
+        ctx.lineTo(s, canvas.height);
+        ctx.stroke();
+    }
+}
+
+// =====================================================
+// NOTE COLOR
+// =====================================================
+
+function colorForAngle(angle) {
+
+    switch(angle) {
+
+        case 45:
+            return "orange";
+
+        case -45:
+            return "dodgerblue";
+
+        case 90:
+            return "yellow";
+
+        case 180:
+            return "red";
+
+        case -180:
+            return "lime";
+
+        default:
+            return "white";
+    }
+}
+
+// =====================================================
+// DRAW NOTES
+// =====================================================
+
+function drawNotes() {
+
+    notes.forEach((note, i) => {
+
+        const x = note.time * PIXELS_PER_SECOND;
+
+        const y = 40 + note.line * LINE_HEIGHT;
+
+        ctx.fillStyle = colorForAngle(note.angle);
+
+        ctx.beginPath();
+        ctx.arc(x, y, NOTE_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (i === selectedIndex) {
+
+            ctx.strokeStyle = "#89f7c4";
+            ctx.lineWidth = 3;
+
+            ctx.beginPath();
+            ctx.arc(x, y, NOTE_RADIUS + 4, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    });
+}
+
+// =====================================================
+// CURSOR
+// =====================================================
+
+function drawObstacles() {
+
+    obstacles.forEach(obs => {
+
+        const x = obs.time * PIXELS_PER_SECOND;
+
+        ctx.fillStyle = "#ff4d6d";
+
+        ctx.fillRect(
+            x - 10,
+            10,
+            20,
+            canvas.height - 20
+        );
+    });
+}
+
+function drawCursor() {
+
+    if (!audio) return;
+
+    const x = audio.currentTime * PIXELS_PER_SECOND;
+
+    ctx.strokeStyle = "#89f7c4";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvas.height);
+    ctx.stroke();
+}
+
+// =====================================================
+// ADD NOTE
+// =====================================================
+
+window.addEventListener("keydown", (e) => {
+
+    if (!audio) return;
+
+    // SPACE = ADD OBSTACLE
+    if (e.code === "Space") {
+
+        e.preventDefault();
+
+        addObstacle(audio.currentTime);
+    }
+
+    // LETTERS / NUMBERS / ENTER = ADD NOTE
+    if (
+        e.code === "Enter"
+        || /^[A-Za-z0-9]$/.test(e.key)
+    ) {
+
+        e.preventDefault();
+
+        addNote(audio.currentTime);
+    }
+
+    // DELETE
+    if (e.code === "Delete") {
+
+        if (selectedIndex >= 0) {
+
+            notes.splice(selectedIndex, 1);
+
+            selectedIndex = -1;
+        }
+    }
+});
+
+function addObstacle(time) {
+
+    obstacles.push({
+
+        time,
+
+        x: Math.random() > 0.5 ? -1 : 0,
+
+        y: Math.random() > 0.5 ? 1 : 2
+    });
+}
+
+function addNote(time) {
+
+    const tolerance = 0.03;
+
+    const simultaneous = notes.filter(n =>
+        Math.abs(n.time - time) < tolerance
+    );
+
+    const line = Math.min(
+        simultaneous.length,
+        TIMELINE_LINES - 1
+    );
+
+    notes.push({
+
+        time,
+
+        angle: 0,
+
+        line,
+
+        x: 0,
+        y: 0
+    });
+
+    notes.sort((a, b) => a.time - b.time);
+}
+
+// =====================================================
+// NOTE SELECTION
+// =====================================================
+
+canvas.addEventListener("click", (e) => {
+
+    const rect = canvas.getBoundingClientRect();
+
+    const mx = e.clientX - rect.left + container.scrollLeft;
+    const my = e.clientY - rect.top + container.scrollTop;
+
+    selectedIndex = -1;
+
+    notes.forEach((note, i) => {
+
+        const x = note.time * PIXELS_PER_SECOND;
+        const y = 40 + note.line * LINE_HEIGHT;
+
+        const dx = mx - x;
+        const dy = my - y;
+
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= NOTE_RADIUS + 4) {
+            selectedIndex = i;
+        }
+    });
+});
+
+// =====================================================
+// APPLY COMBO
+// =====================================================
+
+function applyCombo(name) {
+
+    if (selectedIndex < 0) return;
+
+    const combo = COMBOS[name];
+
+    if (!combo) return;
+
+    if (selectedIndex + combo.length > notes.length)
+        return;
+
+    for (let i = 0; i < combo.length; i++) {
+
+        notes[selectedIndex + i].angle = combo[i];
+    }
+}
+
+// =====================================================
+// AUTO FLOW
+// =====================================================
+
+function autoLane(notesArray) {
+
+    let lastLane = 0;
+
+    notesArray.forEach(note => {
+
+        if (note.angle === 0) {
+
+            const pool = [-1, 0, 1]
+                .filter(v => v !== lastLane);
+
+            note.x = pool[
+                Math.floor(Math.random() * pool.length)
+            ];
+        }
+
+        else if ([45, 180].includes(note.angle)) {
+
+            const pool = [-2, -1]
+                .filter(v => v !== lastLane);
+
+            note.x = pool[
+                Math.floor(Math.random() * pool.length)
+            ];
+        }
+
+        else if ([-45, -180].includes(note.angle)) {
+
+            const pool = [1, 2]
+                .filter(v => v !== lastLane);
+
+            note.x = pool[
+                Math.floor(Math.random() * pool.length)
+            ];
+        }
+
+        else {
+            note.x = 0;
+        }
+
+        note.y = Math.floor(Math.random() * 3);
+
+        lastLane = note.x;
+    });
+
+    return notesArray;
+}
+
+// =====================================================
+// DIFFICULTIES
+// =====================================================
+
+function generateDifficulty(ratio) {
+
+    const total = Math.floor(notes.length * ratio);
+
+    const selected = [...notes]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, total)
+        .sort((a, b) => a.time - b.time);
+
+    rebuildCombos(selected);
+
+    autoLane(selected);
+
+    return selected;
+}
+
+// =====================================================
+// REBUILD COMBOS
+// =====================================================
+
+function rebuildCombos(arr) {
+
+    for (let i = 0; i < arr.length - 1; i++) {
+
+        const a = arr[i];
+        const b = arr[i + 1];
+
+        if (
+            a.angle !== 0
+            && b.angle === 0
+        ) {
+            b.angle = -a.angle;
+        }
+    }
+}
+
+// =====================================================
+// EXPORT
+// =====================================================
+
+exportBtn.onclick = () => {
+
+    if (!audio) return;
+
+    const expert = autoLane([...notes]);
+
+    const hard = generateDifficulty(0.8);
+    const normal = generateDifficulty(0.6);
+    const easy = generateDifficulty(0.4);
+
+    const map = {
+
+        song_info: {
+            title: "Custom Song",
+            bpm: 120
+        },
+
+        charts: {
+
+            expert: {
+                notes: expert,
+                obstacles: obstacles,
+                stats: {
+                    note_count: expert.length
+                }
+            },
+
+            hard: {
+                notes: hard,
+                obstacles: obstacles,
+                stats: {
+                    note_count: hard.length
+                }
+            },
+
+            normal: {
+                notes: normal,
+                obstacles: obstacles,
+                stats: {
+                    note_count: normal.length
+                }
+            },
+
+            easy: {
+                notes: easy,
+                obstacles: obstacles,
+                stats: {
+                    note_count: easy.length
+                }
+            }
+        }
+    };
+
+    const blob = new Blob(
+        [JSON.stringify(map, null, 4)],
+        { type: "application/json" }
+    );
+
+    const a = document.createElement("a");
+
+    a.href = URL.createObjectURL(blob);
+
+    a.download = "song_data.json";
+
+    a.click();
+};
+
+// =====================================================
+// DRAG AND DROP
+// =====================================================
+
+window.addEventListener("dragover", (e) => {
+
+    e.preventDefault();
+
+    dropOverlay.style.display = "flex";
+});
+
+window.addEventListener("dragleave", () => {
+
+    dropOverlay.style.display = "none";
+});
+
+window.addEventListener("drop", (e) => {
+
+    e.preventDefault();
+
+    dropOverlay.style.display = "none";
+
+    const file = e.dataTransfer.files[0];
+
+    if (!file) return;
+
+    loadSong(file);
+});
+
+// =====================================================
+// START
+// =====================================================
+
+resizeCanvas();
+draw();
+
+</script>
+
+</body>
+</html>
