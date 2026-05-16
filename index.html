@@ -1,0 +1,1782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Rhythm Punch Mapper</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.7/dist/jsmediatags.min.js"></script>
+
+<style>
+
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    background:#1b1d26;
+    color:white;
+    font-family:Arial,sans-serif;
+    overflow:hidden;
+}
+
+#app{
+    display:flex;
+    height:100vh;
+}
+
+#left{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+
+#toolbar{
+
+    height:64px;
+
+    background:#242631;
+
+    display:flex;
+    align-items:center;
+    gap:10px;
+
+    padding:10px;
+
+    border-bottom:2px solid #2f3342;
+
+    flex-shrink:0;
+}
+
+button{
+
+    background:#3a3f52;
+    color:white;
+
+    border:none;
+
+    padding:10px 16px;
+
+    border-radius:8px;
+
+    cursor:pointer;
+}
+
+button:hover{
+    background:#4a5169;
+}
+
+#status{
+    color:#b8bfd8;
+    font-size:14px;
+}
+
+#timelineContainer{
+
+    flex:1;
+
+    overflow-y:auto;
+    overflow-x:hidden;
+
+    background:#1b1d26;
+
+    padding:20px;
+}
+
+.timelineBlock{
+
+    position:relative;
+
+    margin-bottom:30px;
+
+    border-radius:12px;
+
+    overflow:hidden;
+
+    background:#171923;
+
+    border:2px solid #2f3342;
+}
+
+.timelineCanvas{
+    display:block;
+    width:100%;
+    height:220px;
+}
+
+#right{
+
+    width:300px;
+
+    background:#242631;
+
+    border-left:2px solid #2f3342;
+
+    display:flex;
+    flex-direction:column;
+}
+
+#comboTitle{
+
+    padding:16px;
+
+    font-size:22px;
+    font-weight:bold;
+
+    border-bottom:2px solid #2f3342;
+}
+
+#comboList{
+
+    overflow-y:auto;
+
+    padding:10px;
+
+    flex:1;
+}
+
+.combo{
+
+    background:#34384a;
+
+    padding:12px;
+
+    border-radius:10px;
+
+    margin-bottom:10px;
+
+    cursor:pointer;
+}
+
+.combo:hover{
+    background:#454b63;
+}
+
+#dropOverlay{
+
+    position:fixed;
+    inset:0;
+
+    display:none;
+
+    align-items:center;
+    justify-content:center;
+
+    background:rgba(0,0,0,0.85);
+
+    z-index:999;
+
+    font-size:36px;
+    font-weight:bold;
+
+    pointer-events:none;
+}
+
+.selectionBox{
+
+    position:fixed;
+
+    border:2px solid #89f7c4;
+
+    background:rgba(137,247,196,0.15);
+
+    pointer-events:none;
+
+    z-index:500;
+}
+
+</style>
+
+</head>
+<body>
+
+<div id="dropOverlay">
+    Drop Song Here
+</div>
+
+<div id="app">
+
+    <div id="left">
+
+        <div id="toolbar">
+
+            <button id="loadBtn">
+                Load Song
+            </button>
+
+            <button id="exportBtn">
+                Export RPMap
+            </button>
+
+            <div id="status">
+                No song loaded
+            </div>
+
+            <input
+                type="file"
+                id="fileInput"
+                accept="audio/*"
+                style="display:none"
+            >
+
+        </div>
+
+        <div id="timelineContainer"></div>
+
+    </div>
+
+    <div id="right">
+
+        <div id="comboTitle">
+            Combos
+        </div>
+
+        <div id="comboList"></div>
+
+    </div>
+
+</div>
+
+<script>
+
+// =====================================================
+// CONFIG
+// =====================================================
+
+const SEGMENT_SECONDS = 15;
+
+const BLOCK_HEIGHT = 220;
+
+const NOTE_RADIUS = 8;
+
+const COMBOS = {
+
+    "Jab Cross":[45,-45],
+
+    "Hook Combo":[180,-180],
+
+    "Flow Left":[0,45,-45],
+
+    "Flow Right":[0,-45,45],
+
+    "Boxing Flow":[45,-45,180,-180]
+};
+
+// =====================================================
+// STATE
+// =====================================================
+
+let audio = null;
+
+let audioUrl = null;
+
+let selectedItems = [];
+
+let copiedNotes = [];
+
+let copiedObstacles = [];
+
+let selectionBox = null;
+
+let selecting = false;
+
+let selectionStart = null;
+
+let dragMoved = false;
+
+let songInfo = {
+
+    title:"",
+    artist:"",
+    album:"",
+    year:"",
+    genre:"",
+    duration:0,
+    bpm:120,
+    file_name:""
+};
+
+let notes = [];
+
+let obstacles = [];
+
+// =====================================================
+// UI
+// =====================================================
+
+const timelineContainer =
+    document.getElementById("timelineContainer");
+
+const comboList =
+    document.getElementById("comboList");
+
+const dropOverlay =
+    document.getElementById("dropOverlay");
+
+const status =
+    document.getElementById("status");
+
+const fileInput =
+    document.getElementById("fileInput");
+
+// =====================================================
+// COMBOS
+// =====================================================
+
+for(const name in COMBOS){
+
+    const div =
+        document.createElement("div");
+
+    div.className = "combo";
+
+    div.innerHTML = `
+        <strong>${name}</strong><br>
+        ${COMBOS[name].join(" → ")}
+    `;
+
+    div.onclick = ()=>applyCombo(name);
+
+    comboList.appendChild(div);
+}
+
+// =====================================================
+// LOAD
+// =====================================================
+
+document
+.getElementById("loadBtn")
+.onclick = ()=>{
+
+    fileInput.value = "";
+
+    fileInput.click();
+};
+
+fileInput.onchange = (e)=>{
+
+    const file =
+        e.target.files[0];
+
+    if(file){
+
+        loadSong(file);
+    }
+};
+
+// =====================================================
+// LOAD SONG
+// =====================================================
+
+function loadSong(file){
+
+    notes = [];
+    obstacles = [];
+
+    if(audio){
+
+        audio.pause();
+    }
+
+    audioUrl =
+        URL.createObjectURL(file);
+
+    audio = new Audio(audioUrl);
+
+    songInfo.file_name =
+        file.name;
+
+    jsmediatags.read(file,{
+
+        onSuccess:(tag)=>{
+
+            const tags = tag.tags;
+
+            songInfo.title =
+                tags.title || file.name;
+
+            songInfo.artist =
+                tags.artist || "Unknown";
+
+            songInfo.album =
+                tags.album || "";
+
+            songInfo.year =
+                tags.year || "";
+
+            songInfo.genre =
+                tags.genre || "";
+
+            status.innerText =
+                `${songInfo.title} - ${songInfo.artist}`;
+        }
+    });
+
+    audio.onloadedmetadata = ()=>{
+
+        songInfo.duration =
+            audio.duration;
+
+        buildTimeline();
+    };
+}
+
+// =====================================================
+// BUILD
+// =====================================================
+
+function buildTimeline(){
+
+    timelineContainer.innerHTML = "";
+
+    const blocks = Math.ceil(
+
+        songInfo.duration /
+        SEGMENT_SECONDS
+    );
+
+    for(let i=0;i<blocks;i++){
+
+        const div =
+            document.createElement("div");
+
+        div.className =
+            "timelineBlock";
+
+        const canvas =
+            document.createElement("canvas");
+
+        canvas.className =
+            "timelineCanvas";
+
+        canvas.width = 1600;
+
+        canvas.height =
+            BLOCK_HEIGHT;
+
+        div.appendChild(canvas);
+
+        timelineContainer
+        .appendChild(div);
+
+        canvas.addEventListener(
+            "mousedown",
+            (e)=>canvasMouseDown(e)
+        );
+    }
+
+    draw();
+}
+
+// =====================================================
+// DRAW
+// =====================================================
+
+function draw(){
+
+    const canvases =
+        document.querySelectorAll(
+            ".timelineCanvas"
+        );
+
+    canvases.forEach((canvas,index)=>{
+
+        const ctx =
+            canvas.getContext("2d");
+
+        drawBlock(ctx,index);
+    });
+
+    requestAnimationFrame(draw);
+}
+
+// =====================================================
+// DRAW BLOCK
+// =====================================================
+
+function drawBlock(ctx,blockIndex){
+
+    const W =
+        ctx.canvas.width;
+
+    const PPS =
+        W / SEGMENT_SECONDS;
+
+    ctx.clearRect(
+        0,
+        0,
+        W,
+        ctx.canvas.height
+    );
+
+    ctx.fillStyle =
+        "#171923";
+
+    ctx.fillRect(
+        0,
+        0,
+        W,
+        ctx.canvas.height
+    );
+
+    // LABEL
+
+    ctx.fillStyle =
+        "#9aa3c0";
+
+    ctx.font =
+        "14px Arial";
+
+    const start =
+        blockIndex *
+        SEGMENT_SECONDS;
+
+    const end =
+        start +
+        SEGMENT_SECONDS;
+
+    ctx.fillText(
+        `${start}s - ${end}s`,
+        12,
+        18
+    );
+
+    // HORIZONTAL
+
+    for(let y=0;y<4;y++){
+
+        const py =
+            50 + y * 40;
+
+        ctx.strokeStyle =
+            "#2f3342";
+
+        ctx.beginPath();
+
+        ctx.moveTo(0,py);
+
+        ctx.lineTo(W,py);
+
+        ctx.stroke();
+    }
+
+    // VERTICAL
+
+    for(let s=0;s<SEGMENT_SECONDS;s++){
+
+        const x = s * PPS;
+
+        ctx.strokeStyle =
+            "#292c39";
+
+        ctx.beginPath();
+
+        ctx.moveTo(x,30);
+
+        ctx.lineTo(
+            x,
+            ctx.canvas.height - 20
+        );
+
+        ctx.stroke();
+    }
+
+    // NOTES
+
+    notes.forEach(note=>{
+
+        const seg =
+            Math.floor(
+                note.time /
+                SEGMENT_SECONDS
+            );
+
+        if(seg !== blockIndex)
+            return;
+
+        const local =
+            note.time -
+            seg *
+            SEGMENT_SECONDS;
+
+        const x =
+            local * PPS;
+
+        const y =
+            40 +
+            note.line * 40;
+
+        ctx.fillStyle =
+            colorForAngle(
+                note.angle
+            );
+
+        ctx.beginPath();
+
+        ctx.arc(
+            x,
+            y,
+            NOTE_RADIUS,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fill();
+
+        if(
+            selectedItems.includes(note)
+        ){
+
+            ctx.strokeStyle =
+                "#89f7c4";
+
+            ctx.lineWidth = 3;
+
+            ctx.beginPath();
+
+            ctx.arc(
+                x,
+                y,
+                NOTE_RADIUS + 4,
+                0,
+                Math.PI*2
+            );
+
+            ctx.stroke();
+        }
+    });
+
+    // OBSTACLES
+
+    obstacles.forEach(obs=>{
+
+        const seg =
+            Math.floor(
+                obs.time /
+                SEGMENT_SECONDS
+            );
+
+        if(seg !== blockIndex)
+            return;
+
+        const local =
+            obs.time -
+            seg *
+            SEGMENT_SECONDS;
+
+        const x =
+            local * PPS;
+
+        ctx.fillStyle =
+            "#ff4d6d";
+
+        ctx.fillRect(
+            x - 8,
+            20,
+            16,
+            ctx.canvas.height - 40
+        );
+
+        if(
+            selectedItems.includes(obs)
+        ){
+
+            ctx.strokeStyle =
+                "#89f7c4";
+
+            ctx.lineWidth = 3;
+
+            ctx.strokeRect(
+                x - 12,
+                16,
+                24,
+                ctx.canvas.height - 32
+            );
+        }
+    });
+
+    // CURSOR
+
+    if(audio){
+
+        const seg =
+            Math.floor(
+                audio.currentTime /
+                SEGMENT_SECONDS
+            );
+
+        if(seg === blockIndex){
+
+            const local =
+                audio.currentTime -
+                seg *
+                SEGMENT_SECONDS;
+
+            const x =
+                local * PPS;
+
+            ctx.strokeStyle =
+                "#89f7c4";
+
+            ctx.lineWidth = 3;
+
+            ctx.beginPath();
+
+            ctx.moveTo(x,0);
+
+            ctx.lineTo(
+                x,
+                ctx.canvas.height
+            );
+
+            ctx.stroke();
+
+            ctx.fillStyle =
+                "#89f7c4";
+
+            ctx.fillRect(
+                x - 5,
+                0,
+                10,
+                12
+            );
+        }
+    }
+}
+
+// =====================================================
+// COLORS
+// =====================================================
+
+function colorForAngle(angle){
+
+    switch(angle){
+
+        case 45:
+            return "orange";
+
+        case -45:
+            return "dodgerblue";
+
+        case 90:
+            return "yellow";
+
+        case 180:
+            return "red";
+
+        case -180:
+            return "lime";
+
+        default:
+            return "white";
+    }
+}
+
+// =====================================================
+// CLICK
+// =====================================================
+
+function singleClickSelect(e){
+
+    selectedItems = [];
+
+    document
+    .querySelectorAll(".timelineCanvas")
+    .forEach((canvas,blockIndex)=>{
+
+        const rect =
+            canvas.getBoundingClientRect();
+
+        if(
+
+            e.clientX < rect.left ||
+            e.clientX > rect.right ||
+
+            e.clientY < rect.top ||
+            e.clientY > rect.bottom
+
+        ){
+
+            return;
+        }
+
+        const PPS =
+            rect.width /
+            SEGMENT_SECONDS;
+
+        const mx =
+            e.clientX -
+            rect.left;
+
+        const my =
+            e.clientY -
+            rect.top;
+
+        // NOTES
+
+        notes.forEach(note=>{
+
+            const seg =
+                Math.floor(
+                    note.time /
+                    SEGMENT_SECONDS
+                );
+
+            if(seg !== blockIndex)
+                return;
+
+            const local =
+                note.time -
+                seg *
+                SEGMENT_SECONDS;
+
+            const x =
+                local * PPS;
+
+            const y =
+                40 +
+                note.line * 40;
+
+            const dx =
+                mx - x;
+
+            const dy =
+                my - y;
+
+            const dist =
+                Math.sqrt(
+                    dx*dx + dy*dy
+                );
+
+            if(dist < 16){
+
+                selectedItems = [note];
+            }
+        });
+
+        // OBSTACLES
+
+        obstacles.forEach(obs=>{
+
+            const seg =
+                Math.floor(
+                    obs.time /
+                    SEGMENT_SECONDS
+                );
+
+            if(seg !== blockIndex)
+                return;
+
+            const local =
+                obs.time -
+                seg *
+                SEGMENT_SECONDS;
+
+            const x =
+                local * PPS;
+
+            if(
+
+                mx >= x - 10 &&
+                mx <= x + 10 &&
+
+                my >= 20 &&
+                my <= BLOCK_HEIGHT - 20
+
+            ){
+
+                selectedItems = [obs];
+            }
+        });
+
+        // SEEK
+
+        if(
+            selectedItems.length === 0
+        ){
+
+            const time =
+                blockIndex *
+                SEGMENT_SECONDS +
+
+                mx / PPS;
+
+            audio.currentTime = time;
+        }
+    });
+}
+
+// =====================================================
+// MOUSE
+// =====================================================
+
+function canvasMouseDown(e){
+
+    selecting = true;
+
+    dragMoved = false;
+
+    selectionStart = {
+
+        x:e.clientX,
+        y:e.clientY
+    };
+
+    selectionBox =
+        document.createElement("div");
+
+    selectionBox.className =
+        "selectionBox";
+
+    document.body.appendChild(
+        selectionBox
+    );
+}
+
+window.addEventListener(
+    "mousemove",
+    (e)=>{
+
+    if(!selecting)
+        return;
+
+    dragMoved = true;
+
+    const x =
+        Math.min(
+            e.clientX,
+            selectionStart.x
+        );
+
+    const y =
+        Math.min(
+            e.clientY,
+            selectionStart.y
+        );
+
+    const w =
+        Math.abs(
+            e.clientX -
+            selectionStart.x
+        );
+
+    const h =
+        Math.abs(
+            e.clientY -
+            selectionStart.y
+        );
+
+    selectionBox.style.left =
+        x + "px";
+
+    selectionBox.style.top =
+        y + "px";
+
+    selectionBox.style.width =
+        w + "px";
+
+    selectionBox.style.height =
+        h + "px";
+
+    const rect =
+        selectionBox.getBoundingClientRect();
+
+    const newSelection = [];
+
+    document
+    .querySelectorAll(".timelineCanvas")
+    .forEach((canvas,blockIndex)=>{
+
+        const canvasRect =
+            canvas.getBoundingClientRect();
+
+        const PPS =
+            canvasRect.width /
+            SEGMENT_SECONDS;
+
+        // NOTES
+
+        notes.forEach(note=>{
+
+            const seg =
+                Math.floor(
+                    note.time /
+                    SEGMENT_SECONDS
+                );
+
+            if(seg !== blockIndex)
+                return;
+
+            const local =
+                note.time -
+                seg *
+                SEGMENT_SECONDS;
+
+            const noteX =
+                canvasRect.left +
+                local * PPS;
+
+            const noteY =
+                canvasRect.top +
+                40 +
+                note.line * 40;
+
+            if(
+
+                noteX >= rect.left &&
+                noteX <= rect.right &&
+
+                noteY >= rect.top &&
+                noteY <= rect.bottom
+
+            ){
+
+                newSelection.push(note);
+            }
+        });
+
+        // OBSTACLES
+
+        obstacles.forEach(obs=>{
+
+            const seg =
+                Math.floor(
+                    obs.time /
+                    SEGMENT_SECONDS
+                );
+
+            if(seg !== blockIndex)
+                return;
+
+            const local =
+                obs.time -
+                seg *
+                SEGMENT_SECONDS;
+
+            const obsX =
+                canvasRect.left +
+                local * PPS;
+
+            const obsTop =
+                canvasRect.top + 20;
+
+            const obsBottom =
+                canvasRect.top +
+                BLOCK_HEIGHT - 20;
+
+            if(
+
+                obsX >= rect.left &&
+                obsX <= rect.right &&
+
+                obsBottom >= rect.top &&
+                obsTop <= rect.bottom
+
+            ){
+
+                newSelection.push(obs);
+            }
+        });
+    });
+
+    selectedItems = newSelection;
+});
+
+window.addEventListener(
+    "mouseup",
+    (e)=>{
+
+    if(!selecting)
+        return;
+
+    if(!dragMoved){
+
+        singleClickSelect(e);
+    }
+
+    selecting = false;
+
+    if(selectionBox){
+
+        selectionBox.remove();
+
+        selectionBox = null;
+    }
+});
+
+// =====================================================
+// ADD NOTE
+// =====================================================
+
+function addNote(time){
+
+    const simultaneous =
+        notes.filter(n=>
+
+            Math.abs(
+                n.time - time
+            ) < 0.03
+        );
+
+    if(
+        simultaneous.length >= 4
+    ){
+        return;
+    }
+
+    notes.push({
+
+        time,
+
+        angle:0,
+
+        line:simultaneous.length,
+
+        comboStart:false
+    });
+
+    notes.sort(
+        (a,b)=>a.time-b.time
+    );
+}
+
+// =====================================================
+// APPLY COMBO
+// =====================================================
+
+function applyCombo(name){
+
+    const combo =
+        COMBOS[name];
+
+    if(
+        selectedItems.length === 0
+    )
+        return;
+
+    const first =
+        selectedItems[0];
+
+    if(
+        !notes.includes(first)
+    )
+        return;
+
+    const index =
+        notes.indexOf(first);
+
+    for(let i=0;i<combo.length;i++){
+
+        if(
+            !notes[index + i]
+        )
+            break;
+
+        notes[index + i]
+        .angle = combo[i];
+    }
+
+    notes[index]
+    .comboStart = true;
+}
+
+// =====================================================
+// COPY PASTE
+// =====================================================
+
+window.addEventListener(
+    "keydown",
+    (e)=>{
+
+    if(!audio)
+        return;
+
+    // CTRL C
+
+    if(
+        e.ctrlKey &&
+        e.key.toLowerCase() === "c"
+    ){
+
+        copiedNotes =
+            selectedItems
+            .filter(v=>
+                notes.includes(v)
+            )
+            .map(v=>({...v}));
+
+        copiedObstacles =
+            selectedItems
+            .filter(v=>
+                obstacles.includes(v)
+            )
+            .map(v=>({...v}));
+    }
+
+    // CTRL V
+
+    else if(
+        e.ctrlKey &&
+        e.key.toLowerCase() === "v"
+    ){
+
+        if(
+            copiedNotes.length === 0 &&
+            copiedObstacles.length === 0
+        )
+            return;
+
+        const firstTime = Math.min(
+
+            ...copiedNotes.map(n=>n.time),
+
+            ...copiedObstacles.map(o=>o.time)
+        );
+
+        const offset =
+            audio.currentTime -
+            firstTime;
+
+        copiedNotes.forEach(n=>{
+
+            addNote(
+                n.time + offset
+            );
+
+            const newest =
+                notes[notes.length - 1];
+
+            newest.angle =
+                n.angle;
+
+            newest.comboStart =
+                n.comboStart;
+        });
+
+        copiedObstacles.forEach(o=>{
+
+            obstacles.push({
+
+                time:o.time + offset
+            });
+        });
+    }
+
+    // SPACE
+
+    else if(e.code === "Space"){
+
+        e.preventDefault();
+
+        if(audio.paused){
+
+            audio.play();
+
+        }else{
+
+            audio.pause();
+        }
+    }
+
+    // ENTER
+
+    else if(e.code === "Enter"){
+
+        obstacles.push({
+
+            time:
+                audio.currentTime
+        });
+    }
+
+    // NOTES
+
+    else if(
+
+        /^[A-Za-z0-9]$/
+        .test(e.key)
+
+    ){
+
+        addNote(
+            audio.currentTime
+        );
+    }
+
+    // DELETE
+
+    else if(e.code === "Delete"){
+
+        notes =
+            notes.filter(n=>
+                !selectedItems.includes(n)
+            );
+
+        obstacles =
+            obstacles.filter(o=>
+                !selectedItems.includes(o)
+            );
+
+        selectedItems = [];
+    }
+
+    // LEFT
+
+    else if(e.code === "ArrowLeft"){
+
+        audio.currentTime =
+            Math.max(
+                0,
+                audio.currentTime - 1
+            );
+    }
+
+    // RIGHT
+
+    else if(e.code === "ArrowRight"){
+
+        audio.currentTime =
+            Math.min(
+                audio.duration,
+                audio.currentTime + 1
+            );
+    }
+
+    // UP
+
+    else if(e.code === "ArrowUp"){
+
+        const seg =
+            Math.floor(
+                audio.currentTime /
+                SEGMENT_SECONDS
+            );
+
+        audio.currentTime =
+            Math.max(
+                0,
+                (seg - 1) *
+                SEGMENT_SECONDS
+            );
+    }
+
+    // DOWN
+
+    else if(e.code === "ArrowDown"){
+
+        const seg =
+            Math.floor(
+                audio.currentTime /
+                SEGMENT_SECONDS
+            );
+
+        audio.currentTime =
+            Math.min(
+                audio.duration,
+                (seg + 1) *
+                SEGMENT_SECONDS
+            );
+    }
+});
+
+// =====================================================
+// FLOW ENGINE
+// =====================================================
+
+function laneForAngle(angle,lastLane){
+
+    if(angle === 0){
+
+        return randomFrom(
+            [-1,0,1]
+            .filter(v=>
+                v !== lastLane
+            )
+        );
+    }
+
+    if(
+        [45,180]
+        .includes(angle)
+    ){
+
+        return randomFrom(
+            [-2,-1]
+            .filter(v=>
+                v !== lastLane
+            )
+        );
+    }
+
+    if(
+        [-45,-180]
+        .includes(angle)
+    ){
+
+        return randomFrom(
+            [1,2]
+            .filter(v=>
+                v !== lastLane
+            )
+        );
+    }
+
+    return 0;
+}
+
+function applyFlow(arr){
+
+    let lastLane = 0;
+
+    return arr.map(note=>{
+
+        const lane =
+            laneForAngle(
+                note.angle,
+                lastLane
+            );
+
+        lastLane = lane;
+
+        return {
+
+            ...note,
+
+            x:lane,
+
+            y:Math.floor(
+                Math.random()*3
+            )
+        };
+    });
+}
+
+function randomFrom(arr){
+
+    return arr[
+        Math.floor(
+            Math.random() *
+            arr.length
+        )
+    ];
+}
+
+// =====================================================
+// DIFFICULTY
+// =====================================================
+
+function generateDifficulty(ratio){
+
+    const total =
+        Math.floor(
+            notes.length * ratio
+        );
+
+    const selected =
+        [...notes]
+
+        .sort(()=>
+            Math.random()-0.5
+        )
+
+        .slice(0,total)
+
+        .sort(
+            (a,b)=>a.time-b.time
+        );
+
+    rebuildCombos(selected);
+
+    return applyFlow(selected);
+}
+
+// =====================================================
+// REBUILD COMBOS
+// =====================================================
+
+function rebuildCombos(arr){
+
+    for(let i=0;i<arr.length;i++){
+
+        const note = arr[i];
+
+        if(!note.comboStart)
+            continue;
+
+        const combo = findComboAt(i);
+
+        if(!combo)
+            continue;
+
+        for(let j=0;j<combo.length;j++){
+
+            if(
+                !arr[i+j]
+            )
+                break;
+
+            arr[i+j].angle =
+                combo[j];
+        }
+    }
+}
+
+function findComboAt(index){
+
+    const note =
+        notes[index];
+
+    for(const name in COMBOS){
+
+        const combo =
+            COMBOS[name];
+
+        let match = true;
+
+        for(let i=0;i<combo.length;i++){
+
+            if(
+                !notes[index+i] ||
+                notes[index+i]
+                .angle !== combo[i]
+            ){
+
+                match = false;
+                break;
+            }
+        }
+
+        if(match)
+            return combo;
+    }
+
+    return null;
+}
+
+// =====================================================
+// EXPORT
+// =====================================================
+
+document
+.getElementById("exportBtn")
+.onclick = async ()=>{
+
+    const zip = new JSZip();
+
+    const expert =
+        applyFlow([...notes]);
+
+    const hard =
+        generateDifficulty(0.8);
+
+    const normal =
+        generateDifficulty(0.6);
+
+    const easy =
+        generateDifficulty(0.4);
+
+    const map = {
+
+        song_info:songInfo,
+
+charts:{
+
+    expert:{
+        notes:expert,
+        obstacles,
+        stats:{
+            note_count:
+                expert.length,
+
+            obstacle_count:
+                obstacles.length
+        }
+    },
+
+    hard:{
+        notes:hard,
+        obstacles,
+        stats:{
+            note_count:
+                hard.length,
+
+            obstacle_count:
+                obstacles.length
+        }
+    },
+
+    normal:{
+        notes:normal,
+        obstacles,
+        stats:{
+            note_count:
+                normal.length,
+
+            obstacle_count:
+                obstacles.length
+        }
+    },
+
+    easy:{
+        notes:easy,
+        obstacles,
+        stats:{
+            note_count:
+                easy.length,
+
+            obstacle_count:
+                obstacles.length
+        }
+    }
+}
+    };
+
+    zip.file(
+
+        "song_data.json",
+
+        JSON.stringify(
+            map,
+            null,
+            4
+        )
+    );
+
+    zip.file(
+
+        "progress.json",
+
+        JSON.stringify({
+
+            best_score:{
+                expert:0,
+                hard:0,
+                normal:0,
+                easy:0
+            },
+
+            completion_percent:{
+                expert:0,
+                hard:0,
+                normal:0,
+                easy:0
+            }
+
+        },null,4)
+    );
+
+    const blob =
+        await zip.generateAsync({
+
+            type:"blob"
+        });
+
+    const a =
+        document.createElement("a");
+
+    const safeName =
+
+        `${songInfo.title}_${songInfo.artist}`
+        .replace(/[\\/:*?"<>|]/g,"")
+        .trim();
+
+    a.href =
+        URL.createObjectURL(blob);
+
+    a.download =
+        `${safeName}.rpmap`;
+
+    a.click();
+};
+
+// =====================================================
+// DRAG DROP
+// =====================================================
+
+document.addEventListener(
+    "dragover",
+    (e)=>{
+
+    e.preventDefault();
+
+    dropOverlay.style.display =
+        "flex";
+});
+
+document.addEventListener(
+    "dragleave",
+    ()=>{
+
+    dropOverlay.style.display =
+        "none";
+});
+
+document.addEventListener(
+    "drop",
+    (e)=>{
+
+    e.preventDefault();
+
+    dropOverlay.style.display =
+        "none";
+
+    const file =
+        e.dataTransfer.files[0];
+
+    if(file){
+
+        loadSong(file);
+    }
+});
+
+// =====================================================
+// AUTO FOLLOW
+// =====================================================
+
+setInterval(()=>{
+
+    if(
+        !audio ||
+        audio.paused
+    )
+        return;
+
+    const seg =
+        Math.floor(
+
+            audio.currentTime /
+            SEGMENT_SECONDS
+        );
+
+    const block =
+        document.querySelectorAll(
+            ".timelineBlock"
+        )[seg];
+
+    if(block){
+
+        block.scrollIntoView({
+
+            behavior:"smooth",
+
+            block:"center"
+        });
+    }
+
+},500);
+
+// =====================================================
+// START
+// =====================================================
+
+draw();
+
+</script>
+
+</body>
+</html>
