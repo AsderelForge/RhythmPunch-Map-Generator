@@ -1543,6 +1543,48 @@ window.addEventListener(
 // FLOW ENGINE
 // =====================================================
 
+function randomFrom(arr){
+
+    return arr[
+        Math.floor(
+            Math.random() *
+            arr.length
+        )
+    ];
+}
+
+// =====================================================
+// APPLY FLOW
+// =====================================================
+
+function applyFlow(arr){
+
+    let lastLane = null;
+
+    return arr.map(note=>{
+
+        const lane =
+            laneForAngle(
+                note.angle,
+                lastLane
+            );
+
+        lastLane = lane;
+
+        return {
+
+            time:note.time,
+
+            angle:note.angle,
+
+            line:lane,
+
+            comboStart:
+                note.comboStart || false
+        };
+    });
+}
+
 function laneForAngle(angle,lastLane){
 
     // =========================================
