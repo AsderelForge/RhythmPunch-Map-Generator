@@ -264,7 +264,26 @@ const COMBOS = {
 
     "Flow Right":[0,-45,45],
 
-    "Boxing Flow":[45,-45,180,-180]
+    "Boxing Flow":[45,-45,180,-180],
+
+    "Uppercuts":[90,90],
+
+    "Uppercut Flow":[0,90,0,90]
+};
+
+const ANGLE_SYMBOLS = {
+
+    0:"0",
+
+    45:"↖",
+
+    "-45":"↗",
+
+    90:"↑",
+
+    180:"←",
+
+    "-180":"→"
 };
 
 // =====================================================
@@ -328,6 +347,32 @@ const fileInput =
 // COMBOS
 // =====================================================
 
+comboList.innerHTML = "";
+
+// =============================================
+// AUTO COMBO BUTTON
+// =============================================
+
+const autoDiv =
+    document.createElement("div");
+
+autoDiv.className = "combo";
+
+autoDiv.innerHTML = `
+    <strong>🎲 Auto Combo</strong><br>
+    Automatically applies combos
+`;
+
+autoDiv.onclick = ()=>{
+    autoGenerateCombos();
+};
+
+comboList.appendChild(autoDiv);
+
+// =============================================
+// NORMAL COMBOS
+// =============================================
+
 for(const name in COMBOS){
 
     const div =
@@ -335,9 +380,18 @@ for(const name in COMBOS){
 
     div.className = "combo";
 
+    const symbols =
+
+        COMBOS[name]
+        .map(v=>
+
+            ANGLE_SYMBOLS[v]
+        )
+        .join(" ");
+
     div.innerHTML = `
         <strong>${name}</strong><br>
-        ${COMBOS[name].join(" → ")}
+        ${symbols}
     `;
 
     div.onclick = ()=>applyCombo(name);
@@ -989,102 +1043,108 @@ window.addEventListener(
     const newSelection = [];
 
     document
-    .querySelectorAll(".timelineCanvas")
-    .forEach((canvas,blockIndex)=>{
+.querySelectorAll(".timelineCanvas")
+.forEach((canvas,blockIndex)=>{
 
-        const canvasRect =
-            canvas.getBoundingClientRect();
+    const canvasRect =
+        canvas.getBoundingClientRect();
 
-        const PPS =
-            canvasRect.width /
+    const PPS =
+        canvasRect.width /
+        SEGMENT_SECONDS;
+
+    // NOTES
+
+    notes.forEach(note=>{
+
+        const seg =
+            Math.floor(
+                note.time /
+                SEGMENT_SECONDS
+            );
+
+        if(seg !== blockIndex)
+            return;
+
+        const local =
+            note.time -
+            seg *
             SEGMENT_SECONDS;
 
-        // NOTES
+        const noteX =
+            canvasRect.left +
+            local * PPS;
 
-        notes.forEach(note=>{
+        const noteY =
+            canvasRect.top +
+            40 +
+            note.line * 40;
 
-            const seg =
-                Math.floor(
-                    note.time /
-                    SEGMENT_SECONDS
-                );
+        if(
 
-            if(seg !== blockIndex)
-                return;
+            noteX >= rect.left &&
+            noteX <= rect.right &&
 
-            const local =
-                note.time -
-                seg *
-                SEGMENT_SECONDS;
+            noteY >= rect.top &&
+            noteY <= rect.bottom
 
-            const noteX =
-                canvasRect.left +
-                local * PPS;
+        ){
 
-            const noteY =
-                canvasRect.top +
-                40 +
-                note.line * 40;
-
-            if(
-
-                noteX >= rect.left &&
-                noteX <= rect.right &&
-
-                noteY >= rect.top &&
-                noteY <= rect.bottom
-
-            ){
+            if(!newSelection.includes(note)){
 
                 newSelection.push(note);
             }
-        });
+        }
+    });
 
-        // OBSTACLES
+    // OBSTACLES
 
-        obstacles.forEach(obs=>{
+    obstacles.forEach(obs=>{
 
-            const seg =
-                Math.floor(
-                    obs.time /
-                    SEGMENT_SECONDS
-                );
+        const seg =
+            Math.floor(
+                obs.time /
+                SEGMENT_SECONDS
+            );
 
-            if(seg !== blockIndex)
-                return;
+        if(seg !== blockIndex)
+            return;
 
-            const local =
-                obs.time -
-                seg *
-                SEGMENT_SECONDS;
+        const local =
+            obs.time -
+            seg *
+            SEGMENT_SECONDS;
 
-            const obsX =
-                canvasRect.left +
-                local * PPS;
+        const obsX =
+            canvasRect.left +
+            local * PPS;
 
-            const obsTop =
-                canvasRect.top + 20;
+        const obsTop =
+            canvasRect.top + 20;
 
-            const obsBottom =
-                canvasRect.top +
-                BLOCK_HEIGHT - 20;
+        const obsBottom =
+            canvasRect.top +
+            BLOCK_HEIGHT - 20;
 
-            if(
+        if(
 
-                obsX >= rect.left &&
-                obsX <= rect.right &&
+            obsX >= rect.left &&
+            obsX <= rect.right &&
 
-                obsBottom >= rect.top &&
-                obsTop <= rect.bottom
+            obsBottom >= rect.top &&
+            obsTop <= rect.bottom
 
-            ){
+        ){
+
+            if(!newSelection.includes(obs)){
 
                 newSelection.push(obs);
             }
-        });
+        }
     });
+});
 
-    selectedItems = newSelection;
+selectedItems = newSelection;
 });
 
 window.addEventListener(
@@ -1143,6 +1203,101 @@ function addNote(time){
     notes.sort(
         (a,b)=>a.time-b.time
     );
+}
+
+// =====================================================
+// AUTO COMBO GENERATOR
+// =====================================================
+
+function autoGenerateCombos(){
+
+    if(notes.length === 0)
+        return;
+
+    // RESET
+
+    notes.forEach(n=>{
+
+        n.angle = 0;
+
+        n.comboStart = false;
+    });
+
+    const comboListArray =
+        Object.values(COMBOS);
+
+    let i = 0;
+
+    while(i < notes.length){
+
+        // KEEP MANY 0 NOTES
+
+        if(Math.random() < 0.55){
+
+            i++;
+
+            continue;
+        }
+
+        // PREVENT DENSE COMBOS
+
+        if(
+
+            i > 0 &&
+
+            notes[i].time -
+            notes[i - 1].time
+
+            < 0.18
+
+        ){
+
+            i++;
+
+            continue;
+        }
+
+        const combo =
+
+            comboListArray[
+                Math.floor(
+                    Math.random() *
+                    comboListArray.length
+                )
+            ];
+
+        // END LIMIT
+
+        if(
+            i + combo.length >=
+            notes.length
+        ){
+
+            break;
+        }
+
+        // APPLY
+
+        for(
+            let j=0;
+            j<combo.length;
+            j++
+        ){
+
+            notes[i + j]
+            .angle = combo[j];
+        }
+
+        notes[i]
+        .comboStart = true;
+
+        // SPACING
+
+        i += combo.length +
+            Math.floor(
+                Math.random()*5
+            ) + 2;
+    }
 }
 
 // =====================================================
@@ -1390,82 +1545,86 @@ window.addEventListener(
 
 function laneForAngle(angle,lastLane){
 
+    // =========================================
+    // STRAIGHT NOTES
+    // =========================================
+
     if(angle === 0){
 
+        // mostly inner lanes
+
         return randomFrom(
-            [-1,0,1]
+
+            [-1,1]
+
             .filter(v=>
                 v !== lastLane
             )
         );
     }
+
+    // =========================================
+    // LEFT ATTACKS
+    // =========================================
 
     if(
         [45,180]
         .includes(angle)
     ){
 
+        // only left side
+
         return randomFrom(
+
             [-2,-1]
+
             .filter(v=>
                 v !== lastLane
             )
         );
     }
+
+    // =========================================
+    // RIGHT ATTACKS
+    // =========================================
 
     if(
         [-45,-180]
         .includes(angle)
     ){
 
+        // only right side
+
         return randomFrom(
+
             [1,2]
+
             .filter(v=>
                 v !== lastLane
             )
         );
     }
 
-    return 0;
-}
+    // =========================================
+    // UPPERCUTS
+    // =========================================
 
-function applyFlow(arr){
+    if(angle === 90){
 
-    let lastLane = 0;
+        return randomFrom(
 
-    return arr.map(note=>{
+            [-1,1]
 
-        const lane =
-            laneForAngle(
-                note.angle,
-                lastLane
-            );
-
-        lastLane = lane;
-
-        return {
-
-            ...note,
-
-            x:lane,
-
-            y:Math.floor(
-                Math.random()*3
+            .filter(v=>
+                v !== lastLane
             )
-        };
-    });
+        );
+    }
+
+    // fallback
+
+    return -1;
 }
-
-function randomFrom(arr){
-
-    return arr[
-        Math.floor(
-            Math.random() *
-            arr.length
-        )
-    ];
-}
-
 // =====================================================
 // DIFFICULTY
 // =====================================================
@@ -1773,8 +1932,6 @@ setInterval(()=>{
 // =====================================================
 // START
 // =====================================================
-
-draw();
 
 </script>
 
