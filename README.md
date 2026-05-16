@@ -102,11 +102,7 @@ Download the latest automatic generator version from the Releases section.
 # How to Import Maps Into Rhythm Punch
 
 Copy map files to:
-
-```text
 Android\data\com.asderelforge.rythmpunch\files\Maps
 
 Copy audio files to:
-
-```text
 Android\data\com.asderelforge.rythmpunch\files\Audio Files
