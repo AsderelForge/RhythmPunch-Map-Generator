@@ -36,7 +36,7 @@ The semi-automatic editor allows you to manually create the Expert difficulty wh
 
 Open the editor here:
 
-:contentReference[oaicite:0]{index=0}
+[:contentReference[oaicite:0]{index=0}](https://asderelforge.github.io/RhythmPunch-Map-Generator/)
 
 ---
 
