@@ -71,6 +71,7 @@ button:hover{
     background:#4a5169;
 }
 
+
 #status{
     color:#b8bfd8;
     font-size:14px;
@@ -209,9 +210,20 @@ button:hover{
                 Load Song
             </button>
 
+            <button id="loadMapBtn">
+                Load Map
+            </button>
+
             <button id="exportBtn">
                 Export RPMap
             </button>
+
+            <select id="difficultySelect">
+            <option value="expert">Expert</option>
+            <option value="hard">Hard</option>
+            <option value="normal">Normal</option>
+            <option value="easy">Easy</option>
+            </select>
 
             <div id="status">
                 No song loaded
@@ -221,6 +233,13 @@ button:hover{
                 type="file"
                 id="fileInput"
                 accept="audio/*"
+                style="display:none"
+            >
+
+            <input
+                type="file"
+                id="mapInput"
+                accept=".rpmap"
                 style="display:none"
             >
 
@@ -320,9 +339,28 @@ let songInfo = {
     file_name:""
 };
 
-let notes = [];
+const difficultyMaps = {
 
-let obstacles = [];
+    expert:{
+        notes:[],
+        obstacles:[]
+    },
+
+    hard:{
+        notes:[],
+        obstacles:[]
+    },
+
+    normal:{
+        notes:[],
+        obstacles:[]
+    },
+
+    easy:{
+        notes:[],
+        obstacles:[]
+    }
+};
 
 // =====================================================
 // UI
@@ -343,11 +381,60 @@ const status =
 const fileInput =
     document.getElementById("fileInput");
 
+const mapInput =
+    document.getElementById("mapInput");
+
+const difficultySelect =
+    document.getElementById(
+        "difficultySelect"
+    );
+
+let currentDifficulty =
+    "expert";
+
+let notes =
+    difficultyMaps.expert.notes;
+
+let obstacles =
+    difficultyMaps.expert.obstacles;
+
 // =====================================================
 // COMBOS
 // =====================================================
 
 comboList.innerHTML = "";
+
+// =====================================================
+// DIFFICULTY SWITCH
+// =====================================================
+
+difficultySelect.onchange = ()=>{
+
+    // SAVE CURRENT
+
+    difficultyMaps[
+        currentDifficulty
+    ].notes = notes;
+
+    difficultyMaps[
+        currentDifficulty
+    ].obstacles = obstacles;
+
+    // LOAD NEW
+
+    currentDifficulty =
+        difficultySelect.value;
+
+    notes =
+        difficultyMaps[
+            currentDifficulty
+        ].notes;
+
+    obstacles =
+        difficultyMaps[
+            currentDifficulty
+        ].obstacles;
+};
 
 // =============================================
 // AUTO COMBO BUTTON
@@ -368,6 +455,35 @@ autoDiv.onclick = ()=>{
 };
 
 comboList.appendChild(autoDiv);
+
+// =============================================
+// CLEAR COMBO BUTTON
+// =============================================
+
+const clearDiv =
+    document.createElement("div");
+
+clearDiv.className = "combo";
+
+clearDiv.innerHTML = `
+    <strong>❌ Clear Combo</strong><br>
+    Reset selected notes
+`;
+
+clearDiv.onclick = ()=>{
+
+    selectedItems.forEach(item=>{
+
+        if(!notes.includes(item))
+            return;
+
+        item.angle = 0;
+
+        item.comboStart = false;
+    });
+};
+
+comboList.appendChild(clearDiv);
 
 // =============================================
 // NORMAL COMBOS
@@ -424,13 +540,186 @@ fileInput.onchange = (e)=>{
 };
 
 // =====================================================
+// LOAD MAP
+// =====================================================
+
+document
+.getElementById("loadMapBtn")
+.onclick = ()=>{
+
+    mapInput.value = "";
+
+    mapInput.click();
+};
+
+mapInput.onchange = async (e)=>{
+
+    const file =
+        e.target.files[0];
+
+    if(!file)
+        return;
+
+    const zip =
+        await JSZip.loadAsync(file);
+
+    const jsonText =
+        await zip
+        .file("song_data.json")
+        .async("string");
+
+    const map =
+        JSON.parse(jsonText);
+
+    // =====================================
+    // SONG INFO
+    // =====================================
+
+    songInfo =
+        map.song_info;
+
+    status.innerText =
+        `${songInfo.title} - ${songInfo.artist}`;
+
+    // =====================================
+    // RESET
+    // =====================================
+
+    for(const diff in difficultyMaps){
+
+        difficultyMaps[diff] = {
+
+            notes:[],
+            obstacles:[]
+        };
+    }
+
+    // =====================================
+    // IMPORT CHARTS
+    // =====================================
+
+    for(const diff in map.charts){
+
+        const chart =
+            map.charts[diff];
+
+        // NOTES
+
+        difficultyMaps[diff]
+        .notes =
+
+            chart.notes.map(n=>({
+
+                time:n.time,
+
+                angle:n.angle,
+
+                line:0,
+
+                comboStart:false
+            }));
+
+        // OBSTACLES
+
+        difficultyMaps[diff]
+        .obstacles =
+
+            chart.obstacles || [];
+    }
+
+    // =====================================
+    // REBUILD COMBOS
+    // =====================================
+
+    for(const diff in difficultyMaps){
+
+        const arr =
+            difficultyMaps[diff]
+            .notes;
+
+        for(let i=0;i<arr.length;i++){
+
+            for(const name in COMBOS){
+
+                const combo =
+                    COMBOS[name];
+
+                let match = true;
+
+                for(
+                    let j=0;
+                    j<combo.length;
+                    j++
+                ){
+
+                    if(
+
+                        !arr[i+j] ||
+
+                        arr[i+j].angle
+                        !== combo[j]
+
+                    ){
+
+                        match = false;
+
+                        break;
+                    }
+                }
+
+                if(match){
+
+                    arr[i].comboStart =
+                        true;
+                }
+            }
+        }
+    }
+
+    // =====================================
+    // LOAD EXPERT
+    // =====================================
+
+    currentDifficulty =
+        "expert";
+
+    difficultySelect.value =
+        "expert";
+
+    notes =
+        difficultyMaps.expert.notes;
+
+    obstacles =
+        difficultyMaps.expert.obstacles;
+
+    buildTimeline();
+};
+
+// =====================================================
 // LOAD SONG
 // =====================================================
 
 function loadSong(file){
 
-    notes = [];
-    obstacles = [];
+for(const diff in difficultyMaps){
+
+    difficultyMaps[diff] = {
+
+        notes:[],
+        obstacles:[]
+    };
+}
+
+currentDifficulty = "expert";
+
+difficultySelect.value =
+    "expert";
+
+notes =
+    difficultyMaps.expert.notes;
+
+obstacles =
+    difficultyMaps.expert.obstacles;
 
     if(audio){
 
@@ -1575,38 +1864,25 @@ function applyFlow(arr){
 
             time:note.time,
 
+            x:lane[0],
+
+            y:lane[1],
+
+            hit_type:"cardio",
+
             angle:note.angle,
 
-            line:lane,
-
-            comboStart:
-                note.comboStart || false
+            points:100
         };
     });
 }
 
 function laneForAngle(angle,lastLane){
 
-    // =========================================
-    // STRAIGHT NOTES
-    // =========================================
-
-    if(angle === 0){
-
-        // mostly inner lanes
-
-        return randomFrom(
-
-            [-1,1]
-
-            .filter(v=>
-                v !== lastLane
-            )
-        );
-    }
+    let pool = [];
 
     // =========================================
-    // LEFT ATTACKS
+    // LEFT
     // =========================================
 
     if(
@@ -1614,59 +1890,62 @@ function laneForAngle(angle,lastLane){
         .includes(angle)
     ){
 
-        // only left side
+        pool = [
 
-        return randomFrom(
-
-            [-2,-1]
-
-            .filter(v=>
-                v !== lastLane
-            )
-        );
+            [-2,2],[-1,2],
+            [-2,1],[-1,1],
+            [-2,0],[-1,0]
+        ];
     }
 
     // =========================================
-    // RIGHT ATTACKS
+    // RIGHT
     // =========================================
 
-    if(
+    else if(
         [-45,-180]
         .includes(angle)
     ){
 
-        // only right side
+        pool = [
 
-        return randomFrom(
+            [2,2],[1,2],
+            [2,1],[1,1],
+            [2,0],[1,0]
+        ];
+    }
 
-            [1,2]
+    // =========================================
+    // CENTER
+    // =========================================
 
-            .filter(v=>
-                v !== lastLane
+    else{
+
+        pool = [
+
+            [-1,1],[1,1],
+            [-1,0],[1,0]
+        ];
+    }
+
+    // =========================================
+    // AVOID SAME LANE
+    // =========================================
+
+    if(lastLane){
+
+        pool = pool.filter(v=>
+
+            !(
+                v[0] === lastLane[0] &&
+                v[1] === lastLane[1]
             )
         );
     }
 
-    // =========================================
-    // UPPERCUTS
-    // =========================================
-
-    if(angle === 90){
-
-        return randomFrom(
-
-            [-1,1]
-
-            .filter(v=>
-                v !== lastLane
-            )
-        );
-    }
-
-    // fallback
-
-    return -1;
+    return randomFrom(pool);
 }
+
 // =====================================================
 // DIFFICULTY
 // =====================================================
@@ -1694,6 +1973,35 @@ function generateDifficulty(ratio){
     rebuildCombos(selected);
 
     return applyFlow(selected);
+}
+
+function generateDifficultyFrom(
+    sourceNotes,
+    ratio
+){
+
+    const total =
+        Math.floor(
+            sourceNotes.length *
+            ratio
+        );
+
+    const selected =
+        [...sourceNotes]
+
+        .sort(()=>
+            Math.random()-0.5
+        )
+
+        .slice(0,total)
+
+        .sort(
+            (a,b)=>a.time-b.time
+        );
+
+    rebuildCombos(selected);
+
+    return selected;
 }
 
 // =====================================================
@@ -1767,75 +2075,208 @@ document
 .getElementById("exportBtn")
 .onclick = async ()=>{
 
-    const zip = new JSZip();
+    // SAVE CURRENT DIFFICULTY
 
-    const expert =
-        applyFlow([...notes]);
+    difficultyMaps[
+        currentDifficulty
+    ].notes = notes;
 
-    const hard =
-        generateDifficulty(0.8);
+    difficultyMaps[
+        currentDifficulty
+    ].obstacles = obstacles;
 
-    const normal =
-        generateDifficulty(0.6);
+    // =========================================
+    // FIND BASE DIFFICULTY
+    // =========================================
 
-    const easy =
-        generateDifficulty(0.4);
+    const order = [
+
+        "expert",
+        "hard",
+        "normal",
+        "easy"
+    ];
+
+    let baseDifficulty = null;
+
+    for(const diff of order){
+
+        if(
+
+            difficultyMaps[diff]
+            .notes.length > 0
+
+        ){
+
+            baseDifficulty = diff;
+
+            break;
+        }
+    }
+
+    if(!baseDifficulty){
+
+        alert("No notes found");
+
+        return;
+    }
+
+    const baseNotes =
+
+        difficultyMaps[
+            baseDifficulty
+        ].notes;
+
+    const baseObstacles =
+
+        difficultyMaps[
+            baseDifficulty
+        ].obstacles;
+
+    // =========================================
+    // BUILD CHARTS
+    // =========================================
+
+    const charts = {};
+
+    // =========================================
+    // EXPERT
+    // =========================================
+
+    charts.expert = {
+
+        notes:
+            applyFlow(
+                [...baseNotes]
+            ),
+
+        obstacles:baseObstacles,
+
+        stats:{
+
+            note_count:
+                baseNotes.length,
+
+            obstacle_count:
+                baseObstacles.length
+        }
+    };
+
+   // =========================================
+// HARD
+// =========================================
+
+const hardSource =
+
+    difficultyMaps.hard.notes
+    .length > 0
+
+    ? difficultyMaps.hard.notes
+
+    : generateDifficultyFrom(
+        baseNotes,
+        0.8
+    );
+
+charts.hard = {
+
+    notes:
+        applyFlow(hardSource),
+
+    obstacles:baseObstacles,
+
+    stats:{
+
+        note_count:
+            hardSource.length,
+
+        obstacle_count:
+            baseObstacles.length
+    }
+};
+
+// =========================================
+// NORMAL
+// =========================================
+
+const normalSource =
+
+    difficultyMaps.normal.notes
+    .length > 0
+
+    ? difficultyMaps.normal.notes
+
+    : generateDifficultyFrom(
+        baseNotes,
+        0.6
+    );
+
+charts.normal = {
+
+    notes:
+        applyFlow(normalSource),
+
+    obstacles:baseObstacles,
+
+    stats:{
+
+        note_count:
+            normalSource.length,
+
+        obstacle_count:
+            baseObstacles.length
+    }
+};
+
+// =========================================
+// EASY
+// =========================================
+
+const easySource =
+
+    difficultyMaps.easy.notes
+    .length > 0
+
+    ? difficultyMaps.easy.notes
+
+    : generateDifficultyFrom(
+        baseNotes,
+        0.4
+    );
+
+charts.easy = {
+
+    notes:
+        applyFlow(easySource),
+
+    obstacles:baseObstacles,
+
+    stats:{
+
+        note_count:
+            easySource.length,
+
+        obstacle_count:
+            baseObstacles.length
+    }
+};
+
+    // =========================================
+    // MAP
+    // =========================================
 
     const map = {
 
         song_info:songInfo,
 
-charts:{
-
-    expert:{
-        notes:expert,
-        obstacles,
-        stats:{
-            note_count:
-                expert.length,
-
-            obstacle_count:
-                obstacles.length
-        }
-    },
-
-    hard:{
-        notes:hard,
-        obstacles,
-        stats:{
-            note_count:
-                hard.length,
-
-            obstacle_count:
-                obstacles.length
-        }
-    },
-
-    normal:{
-        notes:normal,
-        obstacles,
-        stats:{
-            note_count:
-                normal.length,
-
-            obstacle_count:
-                obstacles.length
-        }
-    },
-
-    easy:{
-        notes:easy,
-        obstacles,
-        stats:{
-            note_count:
-                easy.length,
-
-            obstacle_count:
-                obstacles.length
-        }
-    }
-}
+        charts
     };
+
+    // =========================================
+    // ZIP
+    // =========================================
+
+    const zip = new JSZip();
 
     zip.file(
 
